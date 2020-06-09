@@ -73,6 +73,9 @@ void setup()
   setupNetwork();
 
   Udp.begin(localPort);
+
+  int led = 8;
+  pinMode(led, OUTPUT);
 }
 
 void loop() 
@@ -156,8 +159,10 @@ void updateDisplay()
   lcd.print("Light State: ON");
   lcd.setCursor(0, 1);
   lcd.print(myTime.printTime);
- 
+  digitalWrite(8, HIGH);
   delay(10000); //update display every ten seconds
+  digitalWrite(8, LOW);
+  delay(1000);
 }
 
 // send an NTP request to the time server at the given address
