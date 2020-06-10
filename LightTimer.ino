@@ -57,6 +57,8 @@ const int NTP_PACKET_SIZE = 48; // NTP time stamp is in the first 48 bytes of th
 byte packetBuffer[NTP_PACKET_SIZE]; //buffer to hold incoming and outgoing packets
 WiFiUDP Udp;
 
+int relay = 8; //pin number for the relay trigger
+
 struct localTime
 {
   String printTime;
@@ -74,8 +76,7 @@ void setup()
 
   Udp.begin(localPort);
 
-  int led = 8;
-  pinMode(led, OUTPUT);
+  pinMode(relay, OUTPUT); //setting relay trigger to output
 }
 
 void loop() 
@@ -159,10 +160,7 @@ void updateDisplay()
   lcd.print("Light State: ON");
   lcd.setCursor(0, 1);
   lcd.print(myTime.printTime);
-  digitalWrite(8, HIGH);
   delay(10000); //update display every ten seconds
-  digitalWrite(8, LOW);
-  delay(1000);
 }
 
 // send an NTP request to the time server at the given address
