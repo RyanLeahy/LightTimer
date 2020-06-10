@@ -47,8 +47,8 @@
 // initialize the library with the numbers of the interface pins
 LiquidCrystal lcd(12, 11, 5, 4, 3, 2);
 
-char ssid[] = NETWORK_SSID;
-char pass[] = NETWORK_PASS;
+char *ssid = NETWORK_SSID;
+char *pass = NETWORK_PASS;
 int status = WL_IDLE_STATUS; //wifi radio's status
 int retryAuth = 0; //counter for how many times authentication has been attempted with wifi network
 
