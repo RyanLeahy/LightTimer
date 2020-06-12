@@ -59,7 +59,8 @@ byte packetBuffer[NTP_PACKET_SIZE]; //buffer to hold incoming and outgoing packe
 WiFiUDP Udp;
 
 int relay = 8; //pin number for the relay trigger
-
+bool lightState;
+bool overrideState = false; //override is not activated by default
 struct localTime
 {
   String printTime;
@@ -70,7 +71,7 @@ struct localTime
 void setup() 
 {
   // set up the LCD's number of columns and rows:
-  lcd.begin(16, 2);
+  lc d.begin(16, 2);
   
   // set up network connection
   setupNetwork();
@@ -158,10 +159,15 @@ void updateDisplay()
 
   lcd.clear();
   lcd.setCursor(0, 0);
-  lcd.print("Light State: ON");
+  lcd.print(lightState());
   lcd.setCursor(0, 1);
-  lcd.print(myTime.printTime);
-  delay(10000); //update display every ten seconds
+  
+  if(overrideState) //if the user presses the override button to enable the outlets regardless of the timer, display an override on message
+    lcd.print("OVERRIDE ON");
+  else
+    lcd.print(myTime.printTime);
+    
+  delay(5000); //update display every ten seconds
 }
 
 // send an NTP request to the time server at the given address
@@ -291,4 +297,47 @@ String getAMPM(int militaryHour)
   {
     return " AM";
   }
+}
+
+void checkSchedule()
+{
+  if(overrideState == false) //check schedules functionality will only occur if the override is not enabled
+  {
+    
+  }
+}
+
+void enableRelay()
+{
+  digitalWrite(relay, HIGH);
+  lightState = true;
+}
+
+void disableRelay()
+{
+  digitalWrite(relay, LOW);
+  lightState = false;
+}
+
+void overrideRelay()
+{
+  if(overrideState)
+  {
+    digitalWrite(relay, LOW)
+    overrideState = false;
+    checkSchedule(); //since we are now disabling the override we need to put the relay back onto its sunrise sunset schedule
+  }
+  else
+  {
+    digitalWrite(relay, HIGH);
+    overrideState = true;
+  }
+}
+
+String lightState()
+{
+  if(lightState)
+    return "Light State: ON";
+  else
+    return "Light State: OFF";
 }
