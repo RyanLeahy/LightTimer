@@ -1,4 +1,4 @@
- /*
+/*
   LiquidCrystal Library - Hello World
 
  Demonstrates the use a 16x2 LCD display.  The LiquidCrystal
@@ -42,6 +42,7 @@
 #include <SPI.h>
 #include <WiFiNINA.h>
 #include <WiFiUdp.h>
+#include <ArduinoJson.h>
 #include "sensitiveData.h";
 
 // initialize the library with the numbers of the interface pins
@@ -58,9 +59,13 @@ const int NTP_PACKET_SIZE = 48; // NTP time stamp is in the first 48 bytes of th
 byte packetBuffer[NTP_PACKET_SIZE]; //buffer to hold incoming and outgoing packets
 WiFiUDP Udp;
 
+char sunRSServer[] = "api.sunrise-sunset.org"; //sunrise sunset server
+WiFiClient sunRSClient; //the client used to make api connections to sunrise sunset server
+
 int relay = 8; //pin number for the relay trigger
-bool lightState;
-bool overrideState = false; //override is not activated by default
+bool lightStateVal;
+bool overrideStateVal = false; //override is not activated by default
+
 struct localTime
 {
   String printTime;
@@ -70,8 +75,14 @@ struct localTime
 
 void setup() 
 {
+
+  Serial.begin(9600);
+  while (!Serial) 
+  {
+    ; // wait for serial port to connect. Needed for native USB port only
+  }
   // set up the LCD's number of columns and rows:
-  lc d.begin(16, 2);
+  lcd.begin(16, 2);
   
   // set up network connection
   setupNetwork();
@@ -79,6 +90,7 @@ void setup()
   Udp.begin(localPort);
 
   pinMode(relay, OUTPUT); //setting relay trigger to output
+  getSunRSTime();
 }
 
 void loop() 
@@ -162,7 +174,7 @@ void updateDisplay()
   lcd.print(lightState());
   lcd.setCursor(0, 1);
   
-  if(overrideState) //if the user presses the override button to enable the outlets regardless of the timer, display an override on message
+  if(overrideStateVal) //if the user presses the override button to enable the outlets regardless of the timer, display an override on message
     lcd.print("OVERRIDE ON");
   else
     lcd.print(myTime.printTime);
@@ -301,42 +313,70 @@ String getAMPM(int militaryHour)
 
 void checkSchedule()
 {
-  if(overrideState == false) //check schedules functionality will only occur if the override is not enabled
+  if(overrideStateVal == false) //check schedules functionality will only occur if the override is not enabled
   {
     
   }
 }
 
+int *getSunRSTime()
+{
+  int sunRSTime[4] = {5,45,19,0}; //default sunrise and sunset times in case of server failure, sunrise at 5:45 am and sunset at 7:00pm
+  String serverResponse = ""; //the server response will be put into this string
+  char c; //used to convert the bytes into characters
+  
+  if(sunRSClient.connect(sunRSServer, 80))
+  {
+    sunRSClient.println(GET_REQUEST);
+    sunRSClient.println("Host: api.sunrise-sunset.org"); 
+    sunRSClient.println("Connection: close");
+    sunRSClient.println();
+  }
+  
+  delay(250); //put a delay so the server can respond to the get request
+  
+  while(sunRSClient.available())
+  {
+    c = sunRSClient.read();
+    serverResponse = String(serverResponse + c); 
+  }
+  Serial.println(serverResponse);
+  if(!sunRSClient.connected())
+    sunRSClient.stop();
+  
+  return sunRSTime;
+}
+
 void enableRelay()
 {
   digitalWrite(relay, HIGH);
-  lightState = true;
+  lightStateVal = true;
 }
 
 void disableRelay()
 {
   digitalWrite(relay, LOW);
-  lightState = false;
+  lightStateVal = false;
 }
 
 void overrideRelay()
 {
-  if(overrideState)
+  if(overrideStateVal)
   {
-    digitalWrite(relay, LOW)
-    overrideState = false;
+    digitalWrite(relay, LOW);
+    overrideStateVal = false;
     checkSchedule(); //since we are now disabling the override we need to put the relay back onto its sunrise sunset schedule
   }
   else
   {
     digitalWrite(relay, HIGH);
-    overrideState = true;
+    overrideStateVal = true;
   }
 }
 
 String lightState()
 {
-  if(lightState)
+  if(lightStateVal)
     return "Light State: ON";
   else
     return "Light State: OFF";
