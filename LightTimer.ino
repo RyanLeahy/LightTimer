@@ -45,6 +45,9 @@
 #include <ArduinoJson.h>
 #include "sensitiveData.h";
 
+//variable keeps track if setup() is currently running or not
+bool isSetup; //I need this so that when the arduino is booting up it will still grab the sunrise and sunset times from the server without it being 12:01AM
+
 // initialize the library with the numbers of the interface pins
 LiquidCrystal lcd(12, 11, 6, 5, 4, 3);
 
@@ -72,16 +75,20 @@ struct localTime
   String printTime;
   int militaryHour;
   int minute;
+} myTime;
+
+enum RSTime
+{
+  RISE_HOUR,
+  RISE_MIN,
+  SET_HOUR,
+  SET_MIN
 };
 
 void setup() 
 {
-
-  Serial.begin(9600);
-  while (!Serial) 
-  {
-    ; // wait for serial port to connect. Needed for native USB port only
-  }
+  isSetup = true; //set the boolean to true since we are in the setup function
+  
   // set up the LCD's number of columns and rows:
   lcd.begin(16, 2);
   
@@ -93,12 +100,15 @@ void setup()
   pinMode(relayPin, OUTPUT); //setting relay trigger to output
   pinMode(overridePin, INPUT_PULLUP);
   attachInterrupt(digitalPinToInterrupt(overridePin), overrideRelay, CHANGE);
-  
-  getSunRSTime();
+
+  getLocalTime(); //get the current time to initialize myTime
+  checkSchedule(); //check the schedule in setup to get the sunrise and sunset when booting up
+  isSetup = false; //exiting the setup function so set the boolean to false
 }
 
 void loop() 
 {
+  checkSchedule();
   updateDisplay();
 }
 
@@ -226,8 +236,7 @@ localTime getLocalTime()
   int minute;
   String dayOrNight; //place to store am/pm result
   
-  String timeShort; //working string for combining everything
-  localTime myTime; //time struct that will be returned containing all the results of this function call
+  String timeShort = ""; //working string for combining everything
 
   //initialize struct in case of packet error
   myTime.printTime = "Time Error";
@@ -254,26 +263,25 @@ localTime getLocalTime()
     epoch = secsSince1900 - seventyYears;
 
     //Calculate hours and minutes and convert to correct pst time zone and am/pm vs 24 hour
-    militaryHour = ((epoch  % 86400L) / 3600) - 7; //86400 seconds in a day, modulus of epoch with that leaves hours in seconds, divide by how many seconds in an hour to get the gmt hour in military time, minus 7 to get it from gmt to pst
+    militaryHour = convertTimeZone(((epoch  % 86400L) / 3600)); //86400 seconds in a day, modulus of epoch with that leaves hours in seconds, divide by how many seconds in an hour to get the gmt hour in military time, minus 7 to get it from gmt to pst
     
-    if(militaryHour < 0) //the gmt to pst conversion will cause a negative number from 5:00pm to 11:59pm so we need to convert those into positives
-      militaryHour += 23; //our very own int overflow
+    
     
     hour = convertTimeFormat(militaryHour); //convert to am/pm
     minute = (epoch  % 3600) / 60; //remove hours with modulus and leave just minutes in seconds, divide by 60 to get the amount of minutes in the hour
     dayOrNight = getAMPM(militaryHour); //use military time to get am/pm string
 
     //create hour and minute string with am/pm for printing. We will use the String constructor to concatenate all the different ints and strings into one string
-    timeShort = String(hour);
-    timeShort = String(timeShort + ":");
+    timeShort += hour;
+    timeShort += ":";
     
     if (((epoch % 3600) / 60) < 10) // In the first 10 minutes of each hour, we'll want a leading '0'
     {
-      timeShort = String(timeShort + "0");
+      timeShort += "0";
     }
     
-    timeShort = String(timeShort + minute);
-    timeShort = String(timeShort + dayOrNight);
+    timeShort += minute;
+    timeShort += dayOrNight;
 
     myTime.printTime = timeShort;
     myTime.militaryHour = militaryHour;
@@ -281,6 +289,16 @@ localTime getLocalTime()
   }
 
   return myTime;
+}
+
+int convertTimeZone(int militaryHour)
+{
+  militaryHour -= 7;
+  
+  if(militaryHour < 0) //the gmt to pst conversion will cause a negative number from 5:00pm to 11:59pm so we need to convert those into positives
+      militaryHour += 23; //our very own int overflow
+
+  return militaryHour;
 }
 
 int convertTimeFormat(int militaryHour)
@@ -316,39 +334,79 @@ String getAMPM(int militaryHour)
 }
 
 void checkSchedule()
-{
+{ 
+  static int sunRSTime[4];
+  if((myTime.militaryHour == 0 && myTime.minute == 1) || isSetup) // if the time is 12:01 AM. The reason its outside of the override is because the sunrise and sunset times should be independent of the override
+      getSunRSTime(sunRSTime); //get the sunrise and sunset time. We do this once a day to reduce how many requests go to the sunrise-sunset.org server
+      
   if(overrideStateVal == false) //check schedules functionality will only occur if the override is not enabled
   {
-    
+    if((myTime.militaryHour <= sunRSTime[RISE_HOUR] && myTime.minute <= sunRSTime[RISE_MIN]) || (myTime.militaryHour >= sunRSTime[SET_HOUR] && myTime.minute >= sunRSTime[SET_MIN])) //if the time is after sunset or before sunrise, the relay should be enabled
+    {
+      enableRelay();
+    }
+    else
+    {
+      disableRelay();
+    }
   }
+  
+  
 }
 
-int *getSunRSTime()
+void getSunRSTime(int sunRSTime[4])
 {
-  int sunRSTime[4] = {5,45,19,0}; //default sunrise and sunset times in case of server failure, sunrise at 5:45 am and sunset at 7:00pm
-  String serverResponse = ""; //the server response will be put into this string
-  char c; //used to convert the bytes into characters
+  String serverResponse = "";
+  char c;
+  char endOfHeaders[] = "\r\n\r\n"; //string that marks the end of the http request header
   
-  if(sunRSClient.connect(sunRSServer, 80))
+  const size_t capacity = JSON_OBJECT_SIZE(2) + JSON_OBJECT_SIZE(10) + 480; //json size for our specific request. I used https://arduinojson.org/v6/assistant/ to determine what the expression should be
+  DynamicJsonDocument doc(capacity); //preallocate the json document
+  JsonObject results; //the doc stores everything useful under results
+
+  sunRSTime[RISE_HOUR] = 5; //default sunrise and sunset times in case of server failure, sunrise at 5:45 am and sunset at 7:00pm
+  sunRSTime[RISE_MIN] = 45;
+  sunRSTime[SET_HOUR] = 19;
+  sunRSTime[SET_MIN] = 0;
+
+  
+  String sunrise; //string that holds the json response for sunrise, will use it to extract the times we need
+  String sunset; //string that holds the json response for sunset, will use it to extract the times we need
+  
+  if(sunRSClient.connect(sunRSServer, 80)) //do all of this work IF the connection is successful
   {
     sunRSClient.println(GET_REQUEST);
     sunRSClient.println("Host: api.sunrise-sunset.org"); 
     sunRSClient.println("Connection: close");
     sunRSClient.println();
+  
+  
+    delay(250); //put a delay so the server can respond to the get request
+  
+    sunRSClient.find(endOfHeaders); //by finding where the header is it skips the header
+  
+    while(sunRSClient.available())
+    {
+      c = sunRSClient.read();
+      serverResponse += c;
+    }
+    
+    serverResponse = serverResponse.substring(serverResponse.indexOf("{"), serverResponse.lastIndexOf("}") + 1); //clean up the response to only capture the json request
+    
+    deserializeJson(doc, serverResponse); //decode the json into the individual objects
+    results = doc["results"]; //assign the results object to its own object so we can easily access the data thats a child of result
+    
+    sunrise = String(results["sunrise"].as<char*>());
+    sunset = String(results["sunset"].as<char*>());
+  
+    sunRSTime[RISE_HOUR] = convertTimeZone(sunrise.substring(11, 13).toInt()); //untouched response looks like 2020-06-13T02:57:58+00:00, this grabs the hour and converts it to an int and then changes its time zone from UTC to PST
+    sunRSTime[RISE_MIN] = sunrise.substring(14, 16).toInt(); //grabs just the minute and converts it
+    sunRSTime[SET_HOUR] = convertTimeZone(sunset.substring(11, 13).toInt());
+    sunRSTime[SET_MIN] = sunset.substring(14, 16).toInt();
   }
   
-  delay(250); //put a delay so the server can respond to the get request
-  
-  while(sunRSClient.available())
-  {
-    c = sunRSClient.read();
-    serverResponse = String(serverResponse + c); 
-  }
-  Serial.println(serverResponse);
   if(!sunRSClient.connected())
     sunRSClient.stop();
-  
-  return sunRSTime;
 }
 
 void enableRelay()
@@ -365,7 +423,7 @@ void disableRelay()
 
 void overrideRelay()
 {
-  delayMicroseconds(500000);
+  delayMicroseconds(500000); //delayMicroseconds is the only delay function that will work during interrupts according to the interrupt docs
   if(overrideStateVal)
   {
     digitalWrite(relayPin, LOW);
