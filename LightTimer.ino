@@ -251,6 +251,10 @@ localTime getLocalTime()
 
     //Calculate hours and minutes and convert to correct pst time zone and am/pm vs 24 hour
     militaryHour = ((epoch  % 86400L) / 3600) - 7; //86400 seconds in a day, modulus of epoch with that leaves hours in seconds, divide by how many seconds in an hour to get the gmt hour in military time, minus 7 to get it from gmt to pst
+    
+    if(militaryHour < 0) //the gmt to pst conversion will cause a negative number from 5:00pm to 11:59pm so we need to convert those into positives
+      militaryHour += 23; //our very own int overflow
+    
     hour = convertTimeFormat(militaryHour); //convert to am/pm
     minute = (epoch  % 3600) / 60; //remove hours with modulus and leave just minutes in seconds, divide by 60 to get the amount of minutes in the hour
     dayOrNight = getAMPM(militaryHour); //use military time to get am/pm string
@@ -278,11 +282,7 @@ localTime getLocalTime()
 int convertTimeFormat(int militaryHour)
 {
   int hour;
-  
-  if(militaryHour < 0) //the gmt to pst conversion will cause a negative number from 5:00pm to 11:59pm so we need to convert those into positives
-  {
-    militaryHour += 23; //our very own int overflow
-  }
+
   if(militaryHour == 0) //if it's midnight
   {
     hour = militaryHour + 12; //add 12 to make it midnight for standard am/pm format
@@ -301,6 +301,7 @@ int convertTimeFormat(int militaryHour)
 
 String getAMPM(int militaryHour)
 {
+  Serial.println(militaryHour);
   if(militaryHour > 11) //determine if it's day or night based off the military time
   {
       return " PM";
