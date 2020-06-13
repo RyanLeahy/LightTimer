@@ -376,6 +376,7 @@ void overrideRelay()
   {
     digitalWrite(relayPin, HIGH);
     overrideStateVal = true;
+    lightStateVal = true;
   }
 }
 
