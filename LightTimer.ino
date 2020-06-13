@@ -46,7 +46,7 @@
 #include "sensitiveData.h";
 
 // initialize the library with the numbers of the interface pins
-LiquidCrystal lcd(12, 11, 5, 4, 3, 2);
+LiquidCrystal lcd(12, 11, 6, 5, 4, 3);
 
 char *ssid = NETWORK_SSID;
 char *pass = NETWORK_PASS;
@@ -62,7 +62,8 @@ WiFiUDP Udp;
 char sunRSServer[] = "api.sunrise-sunset.org"; //sunrise sunset server
 WiFiClient sunRSClient; //the client used to make api connections to sunrise sunset server
 
-int relay = 8; //pin number for the relay trigger
+int relayPin = 8; //pin number for the relay trigger
+int overridePin = 2;
 bool lightStateVal;
 bool overrideStateVal = false; //override is not activated by default
 
@@ -89,7 +90,10 @@ void setup()
 
   Udp.begin(localPort);
 
-  pinMode(relay, OUTPUT); //setting relay trigger to output
+  pinMode(relayPin, OUTPUT); //setting relay trigger to output
+  pinMode(overridePin, INPUT_PULLUP);
+  attachInterrupt(digitalPinToInterrupt(overridePin), overrideRelay, CHANGE);
+  
   getSunRSTime();
 }
 
@@ -301,7 +305,6 @@ int convertTimeFormat(int militaryHour)
 
 String getAMPM(int militaryHour)
 {
-  Serial.println(militaryHour);
   if(militaryHour > 11) //determine if it's day or night based off the military time
   {
       return " PM";
@@ -350,27 +353,28 @@ int *getSunRSTime()
 
 void enableRelay()
 {
-  digitalWrite(relay, HIGH);
+  digitalWrite(relayPin, HIGH);
   lightStateVal = true;
 }
 
 void disableRelay()
 {
-  digitalWrite(relay, LOW);
+  digitalWrite(relayPin, LOW);
   lightStateVal = false;
 }
 
 void overrideRelay()
 {
+  delayMicroseconds(500000);
   if(overrideStateVal)
   {
-    digitalWrite(relay, LOW);
+    digitalWrite(relayPin, LOW);
     overrideStateVal = false;
     checkSchedule(); //since we are now disabling the override we need to put the relay back onto its sunrise sunset schedule
   }
   else
   {
-    digitalWrite(relay, HIGH);
+    digitalWrite(relayPin, HIGH);
     overrideStateVal = true;
   }
 }
