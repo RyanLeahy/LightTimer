@@ -341,7 +341,7 @@ void checkSchedule()
       
   if(overrideStateVal == false) //check schedules functionality will only occur if the override is not enabled
   {
-    if((myTime.militaryHour <= sunRSTime[RISE_HOUR] && myTime.minute <= sunRSTime[RISE_MIN]) || (myTime.militaryHour >= sunRSTime[SET_HOUR] && myTime.minute >= sunRSTime[SET_MIN])) //if the time is after sunset or before sunrise, the relay should be enabled
+    if(((myTime.militaryHour == sunRSTime[RISE_HOUR] && myTime.minute <= sunRSTime[RISE_MIN]) || myTime.militaryHour < sunRSTime[RISE_HOUR]) || ((myTime.militaryHour == sunRSTime[SET_HOUR] && myTime.minute >= sunRSTime[SET_MIN]) || (myTime.militaryHour > sunRSTime[SET_HOUR]))) //if the time is after sunset or before sunrise, the relay should be enabled
     {
       enableRelay();
     }
