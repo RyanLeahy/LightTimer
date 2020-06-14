@@ -296,7 +296,7 @@ int convertTimeZone(int militaryHour)
   militaryHour -= 7;
   
   if(militaryHour < 0) //the gmt to pst conversion will cause a negative number from 5:00pm to 11:59pm so we need to convert those into positives
-      militaryHour += 23; //our very own int overflow
+      militaryHour += 24; //our very own int overflow
 
   return militaryHour;
 }
