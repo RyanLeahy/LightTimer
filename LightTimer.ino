@@ -1,43 +1,21 @@
 /*
-  LiquidCrystal Library - Hello World
-
- Demonstrates the use a 16x2 LCD display.  The LiquidCrystal
- library works with all LCD displays that are compatible with the
- Hitachi HD44780 driver. There are many of them out there, and you
- can usually tell them by the 16-pin interface.
-
- This sketch prints "Hello World!" to the LCD
- and shows the time.
-
-  The circuit:
- * LCD RS pin to digital pin 12
- * LCD Enable pin to digital pin 11
- * LCD D4 pin to digital pin 5
- * LCD D5 pin to digital pin 4
- * LCD D6 pin to digital pin 3
- * LCD D7 pin to digital pin 2
- * LCD R/W pin to ground
- * LCD VSS pin to ground
- * LCD VCC pin to 5V
- * 10K resistor:
- * ends to +5V and ground
- * wiper to LCD VO pin (pin 3)
-
- Library originally added 18 Apr 2008
- by David A. Mellis
- library modified 5 Jul 2009
- by Limor Fried (http://www.ladyada.net)
- example added 9 Jul 2009
- by Tom Igoe
- modified 22 Nov 2010
- by Tom Igoe
-
- This example code is in the public domain.
-
- http://www.arduino.cc/en/Tutorial/LiquidCrystal
+ *  Light Timer - June 2020
+ *  
+ *  The purpose of this project is pretty simple. Replace outdoor light timers with clunky user interfaces that make it difficult to setup with something that is plug and play.
+ *  The way I accomplish this is actually not too difficult. Find an Arduino with internet capabilities, buy a relay that can handle high wattage AC, and get an lcd display.
+ *  After I got all those components I started piecing them together on a breadboard to write the code for. First thing to do was get the lcd working. Following the lcd is the
+ *  time code. Once that's done add the relay code. Add in a spice of an override switch and daylight savings time accountability and the code is done. With any piece of code that's
+ *  assembled like a lego set, I could not of done this without the resources provided below.
+ *  
+ *  Resources used:
+ *  https://arduinojson.org/
+ *  https://timezonedb.com/api
+ *  https://sunrise-sunset.org/api
+ *  https://www.arduino.cc/en/Tutorial/HelloWorld
+ *  https://www.arduino.cc/en/Tutorial/UdpNTPClient
+ *  https://www.arduino.cc/en/Tutorial/WiFiWebClient
+ *  
  */
-
-// include the library code:
 #include <LiquidCrystal.h>
 #include <SPI.h>
 #include <WiFiNINA.h>
@@ -62,6 +40,9 @@ const int NTP_PACKET_SIZE = 48; // NTP time stamp is in the first 48 bytes of th
 byte packetBuffer[NTP_PACKET_SIZE]; //buffer to hold incoming and outgoing packets
 WiFiUDP Udp;
 
+char dstServer[] = "api.timezonedb.com"; //server for daylight savings time checking
+WiFiClient dstClient; //wifi client for daylight savings time checking
+
 char sunRSServer[] = "api.sunrise-sunset.org"; //sunrise sunset server
 WiFiClient sunRSClient; //the client used to make api connections to sunrise sunset server
 
@@ -85,6 +66,15 @@ enum RSTime
   SET_MIN
 };
 
+/*************************************************************
+ * Function: setup ()                    
+ * Date Created: 6/9/2020
+ * Date Last Modified: 6/13/2020
+ * Description: function is the entrance point for the arduino. 
+ *              This function gets executed first to setup arduino.
+ * Input parameters: none
+ * Returns: void
+ *************************************************************/
 void setup() 
 {
   isSetup = true; //set the boolean to true since we are in the setup function
@@ -106,12 +96,35 @@ void setup()
   isSetup = false; //exiting the setup function so set the boolean to false
 }
 
+/*************************************************************
+ * Function: loop ()                    
+ * Date Created: 6/9/2020
+ * Date Last Modified: 6/13/2020
+ * Description: function is the executing body of the arduino. 
+ *              Once setup is performed this function loops until shutdown.
+ *              This is where the arduino updates the lcd and checks if the relay
+ *              should be on or not.
+ * Input parameters: none
+ * Returns: void
+ *************************************************************/
 void loop() 
 {
   checkSchedule();
   updateDisplay();
 }
 
+/*************************************************************
+ * Function: setupNetwork ()                    
+ * Date Created: 6/9/2020
+ * Date Last Modified: 6/9/2020
+ * Description: function is called during setup to connect to the wifi network
+ *              for all the internet communication needed during uptime.
+ *              This function does all the checking and connecting. If something
+ *              goes wrong it will display a message to the lcd and depending on
+ *              the severity of the failure it may loop until manually shut down.
+ * Input parameters: none
+ * Returns: void
+ *************************************************************/
 void setupNetwork()
 {
   // check for the WiFi module:
@@ -177,6 +190,16 @@ void setupNetwork()
   delay(3000);
 }
 
+/*************************************************************
+ * Function: updateDisplay ()                    
+ * Date Created: 6/9/2020
+ * Date Last Modified: 6/13/2020
+ * Description: function takes care of the lcd display. This function houses
+ *              all the calls to check and update the time, update the state of the light,
+ *              and let the user know if the override is on or not.
+ * Input parameters: none
+ * Returns: void
+ *************************************************************/
 void updateDisplay()
 {
   localTime myTime;
@@ -196,7 +219,15 @@ void updateDisplay()
   delay(5000); //update display every ten seconds
 }
 
-// send an NTP request to the time server at the given address
+/*************************************************************
+ * Function: sendNTPpacket ()                    
+ * Date Created: 6/9/2020
+ * Date Last Modified: 6/9/2020
+ * Description: function handles creating and sending the NTP packet to the NTP server.
+ *              This function was not written by me at all. (Author: Michael Margolis)
+ * Input parameters: IPAddress& address
+ * Returns: unsigned long
+ *************************************************************/
 unsigned long sendNTPpacket(IPAddress& address) 
 {
   // set all bytes in the buffer to 0
@@ -221,6 +252,16 @@ unsigned long sendNTPpacket(IPAddress& address)
   Udp.endPacket();
 }
 
+/*************************************************************
+ * Function: getLocalTime ()                    
+ * Date Created: 6/9/2020
+ * Date Last Modified: 6/13/2020
+ * Description: function handles getting the time from NTP server and 
+ *              calling helper function to convert it down to its 24hr format
+ *              and 12hr format with a print message for the lcd.
+ * Input parameters: none
+ * Returns: localTime
+ *************************************************************/
 localTime getLocalTime()
 {
   //this block is used to extract the raw time out of the packet and get it into epoch
@@ -291,9 +332,63 @@ localTime getLocalTime()
   return myTime;
 }
 
+/*************************************************************
+ * Function: convertTimeZone ()                    
+ * Date Created: 6/13/2020
+ * Date Last Modified: 6/17/2020
+ * Description: function handles taking in the hour given by the NTP
+ *              and converting it (with consideration of daylight savings time)
+ *              to PST in the 24 hour format.
+ * Input parameters: int militaryHour
+ * Returns: int 
+ *************************************************************/
 int convertTimeZone(int militaryHour)
 {
-  militaryHour -= 7;
+  String serverResponse = "";
+  char c;
+  char endOfHeaders[] = "\r\n\r\n"; //string that marks the end of the http request header
+  int gmtOffset = 0;
+  
+  const size_t capacity = JSON_OBJECT_SIZE(13) + 230; //json size for our specific request. I used https://arduinojson.org/v6/assistant/ to determine what the expression should be
+  DynamicJsonDocument doc(capacity); //preallocate the json document
+
+  if(dstClient.connect(dstServer, 80)) //do all of this work IF the connection is successful
+  {
+    dstClient.println(DST_GET_REQUEST);
+    dstClient.println("Host: api.timezonedb.com"); 
+    dstClient.println("Connection: close");
+    dstClient.println();
+  
+    delay(250); //put a delay so the server can respond to the get request
+  
+    dstClient.find(endOfHeaders); //by finding where the header is it skips the header
+  
+    while(dstClient.available())
+    {
+      c = dstClient.read();
+      serverResponse += c;
+    }
+    
+    serverResponse = serverResponse.substring(serverResponse.indexOf("{"), serverResponse.lastIndexOf("}") + 1); //clean up the response to only capture the json request
+    
+    deserializeJson(doc, serverResponse); //decode the json into the individual objects
+
+    if(String(doc["dst"].as<char*>()).equals("1")) 
+      gmtOffset = 7;
+    else if(String(doc["dst"].as<char*>()).equals("0"))
+      gmtOffset = 8;
+    else
+      gmtOffset = 0;
+      
+  }
+
+  if(!dstClient.connected())
+    dstClient.stop();
+
+  if(gmtOffset == 0) //if the body of the server request fails then the gmtOffset will not occur so we default the offset to seven hours.
+    gmtOffset = 7;
+  
+  militaryHour -= gmtOffset;
   
   if(militaryHour < 0) //the gmt to pst conversion will cause a negative number from 5:00pm to 11:59pm so we need to convert those into positives
       militaryHour += 24; //our very own int overflow
@@ -301,6 +396,15 @@ int convertTimeZone(int militaryHour)
   return militaryHour;
 }
 
+/*************************************************************
+ * Function: convertTimeFormat ()                    
+ * Date Created: 6/9/2020
+ * Date Last Modified: 6/13/2020
+ * Description: function takes in a 24hr formatted hour and converts
+ *              it to a 12hr format.
+ * Input parameters: int militaryHour
+ * Returns: int
+ *************************************************************/
 int convertTimeFormat(int militaryHour)
 {
   int hour;
@@ -321,6 +425,15 @@ int convertTimeFormat(int militaryHour)
   return hour;
 }
 
+/*************************************************************
+ * Function: getAMPM ()                    
+ * Date Created: 6/9/2020
+ * Date Last Modified: 6/13/2020
+ * Description: function takes in the 24hr format and returns a 
+ *              String representation of if it's AM or PM.
+ * Input parameters: int militaryHour 
+ * Returns: String
+ *************************************************************/
 String getAMPM(int militaryHour)
 {
   if(militaryHour > 11) //determine if it's day or night based off the military time
@@ -333,6 +446,17 @@ String getAMPM(int militaryHour)
   }
 }
 
+/*************************************************************
+ * Function: checkSchedule ()                    
+ * Date Created: 6/13/2020
+ * Date Last Modified: 6/14/2020
+ * Description: function checks if the current time is after sunset 
+ *              and before sunrise to enable the relay. Function
+ *              also once a day checks when sunrise and sunset is.
+ *              (also at bootup)
+ * Input parameters: none
+ * Returns: void
+ *************************************************************/
 void checkSchedule()
 { 
   static int sunRSTime[4];
@@ -350,10 +474,17 @@ void checkSchedule()
       disableRelay();
     }
   }
-  
-  
 }
 
+/*************************************************************
+ * Function: getSunRSTime ()                    
+ * Date Created: 6/13/2020
+ * Date Last Modified: 6/17/2020
+ * Description: function asks a sunrise sunset server what time 
+ *              sunrise and sunset are and return it in PST.
+ * Input parameters: int sunRSTime[4]
+ * Returns: void
+ *************************************************************/
 void getSunRSTime(int sunRSTime[4])
 {
   String serverResponse = "";
@@ -375,7 +506,7 @@ void getSunRSTime(int sunRSTime[4])
   
   if(sunRSClient.connect(sunRSServer, 80)) //do all of this work IF the connection is successful
   {
-    sunRSClient.println(GET_REQUEST);
+    sunRSClient.println(RS_GET_REQUEST);
     sunRSClient.println("Host: api.sunrise-sunset.org"); 
     sunRSClient.println("Connection: close");
     sunRSClient.println();
@@ -409,18 +540,42 @@ void getSunRSTime(int sunRSTime[4])
     sunRSClient.stop();
 }
 
+/*************************************************************
+ * Function: enableRelay ()                    
+ * Date Created: 6/13/2020
+ * Date Last Modified: 6/13/2020
+ * Description: function enables the relay.
+ * Input parameters: none
+ * Returns:  void
+ *************************************************************/
 void enableRelay()
 {
   digitalWrite(relayPin, HIGH);
   lightStateVal = true;
 }
 
+/*************************************************************
+ * Function: disableRelay ()                    
+ * Date Created: 6/13/2020
+ * Date Last Modified: 6/13/2020
+ * Description: function disables the relay.
+ * Input parameters: none
+ * Returns: void
+ *************************************************************/
 void disableRelay()
 {
   digitalWrite(relayPin, LOW);
   lightStateVal = false;
 }
 
+/*************************************************************
+ * Function: overrideRelay ()                    
+ * Date Created: 6/13/2020
+ * Date Last Modified: 6/13/2020
+ * Description: function handles the override button logic.
+ * Input parameters: none
+ * Returns: void
+ *************************************************************/
 void overrideRelay()
 {
   delayMicroseconds(500000); //delayMicroseconds is the only delay function that will work during interrupts according to the interrupt docs
@@ -438,6 +593,15 @@ void overrideRelay()
   }
 }
 
+/*************************************************************
+ * Function: lightState ()                    
+ * Date Created: 6/13/2020
+ * Date Last Modified: 6/13/2020
+ * Description: function returns a String representation of the 
+ *              current state of the light relay.
+ * Input parameters: none
+ * Returns: void
+ *************************************************************/
 String lightState()
 {
   if(lightStateVal)
